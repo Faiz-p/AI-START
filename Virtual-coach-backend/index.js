@@ -47,7 +47,7 @@ const lipSyncMessage = async (message) => {
   );
   console.log(`Conversion done in ${new Date().getTime() - time}ms`);
   await execCommand(
-    `bin/rhubarb.exe -f json -o audios/message_0.json audios/message_0.wav -r phonetic`
+    `./bin/rhubarb.exe -f json -o audios/message_0.json audios/message_0.wav -r phonetic`
   );
   // -r phonetic is faster but less accurate
   console.log(`Lip sync done in ${new Date().getTime() - time}ms`);
@@ -59,7 +59,7 @@ app.post("/chat", async (req, res) => {
     res.send({
       messages: [
         {
-          text: "Hey dear... How was your day?",
+          text: "Hey dear... How was your day. Welcome to Aspirez?",
           audio: await audioFileToBase64("audios/intro_0.wav"),
           lipsync: await readJsonTranscript("audios/intro_0.json"),
           facialExpression: "smile",
