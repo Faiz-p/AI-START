@@ -1,145 +1,109 @@
 import { exec } from "child_process";
 import cors from "cors";
-import dotenv from "dotenv";
-import voice from "elevenlabs-node";
 import express from "express";
 import { promises as fs } from "fs";
-import OpenAI from "openai";
-dotenv.config();
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || "-", // Your OpenAI API key here, I used "-" to avoid errors when the key is not set but you should not do that
-});
-
-const elevenLabsApiKey = process.env.ELEVEN_LABS_API_KEY;
-const voiceID = "kgG7dCoKCfLehAPWkJOE";
-
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 const port = 3000;
 
-app.get("/", (req, res) => {
-  res.send("Hello World!");
-});
-
-app.get("/voices", async (req, res) => {
-  res.send(await voice.getVoices(elevenLabsApiKey));
-});
-
-const execCommand = (command) => {
-  return new Promise((resolve, reject) => {
-    exec(command, (error, stdout, stderr) => {
-      if (error) reject(error);
-      resolve(stdout);
-    });
-  });
-};
-
-const lipSyncMessage = async (message) => {
-  const time = new Date().getTime();
-  console.log(`Starting conversion for message ${message}`);
-  await execCommand(
-    `ffmpeg -y -i audios/message_${message}.mp3 audios/message_${message}.wav`
-    // -y to overwrite the file
-  );
-  console.log(`Conversion done in ${new Date().getTime() - time}ms`);
-  await execCommand(
-    `./bin/rhubarb.exe -f json -o audios/message_0.json audios/message_0.wav -r phonetic`
-  );
-  // -r phonetic is faster but less accurate
-  console.log(`Lip sync done in ${new Date().getTime() - time}ms`);
-};
-
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
-  if (!userMessage) {
-    res.send({
-      messages: [
-        {
-          text: "Hey dear... How was your day. Welcome to Aspirez?",
-          audio: await audioFileToBase64("audios/intro_0.wav"),
-          lipsync: await readJsonTranscript("audios/intro_0.json"),
-          facialExpression: "smile",
-          animation: "Talking_1",
-        },
-        {
-          text: "I missed you so much... Please don't go for so long!",
-          audio: await audioFileToBase64("audios/intro_1.wav"),
-          lipsync: await readJsonTranscript("audios/intro_1.json"),
-          facialExpression: "sad",
-          animation: "Crying",
-        },
-      ],
-    });
-    return;
-  }
-  if (!elevenLabsApiKey || openai.apiKey === "-") {
-    res.send({
-      messages: [
-        {
-          text: "Please my dear, don't forget to add your API keys!",
-          audio: await audioFileToBase64("audios/api_0.wav"),
-          lipsync: await readJsonTranscript("audios/api_0.json"),
-          facialExpression: "angry",
-          animation: "Angry",
-        },
-        {
-          text: "You don't want to ruin Raju with a crazy ChatGPT and ElevenLabs bill, right?",
-          audio: await audioFileToBase64("audios/api_1.wav"),
-          lipsync: await readJsonTranscript("audios/api_1.json"),
-          facialExpression: "smile",
-          animation: "Laughing",
-        },
-      ],
-    });
-    return;
-  }
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-3.5-turbo-1106",
-    max_tokens: 1000,
-    temperature: 0.6,
-    response_format: {
-      type: "json_object",
-    },
-    messages: [
-      {
-        role: "system",
-        content: `
-        You are a virtual life coach.
-        You will always reply with a JSON array of messages. With a maximum of 3 messages.
-        Each message has a text, facialExpression, and animation property.
-        The different facial expressions are: smile, sad, angry, surprised, funnyFace, and default.
-        The different animations are: Talking_0, Talking_1, Talking_2, Crying, Laughing, Rumba, Idle, Terrified, and Angry.
-        `,
-      },
-      {
-        role: "user",
-        content: userMessage || "Hello",
-      },
-    ],
-  });
-  let messages = JSON.parse(completion.choices[0].message.content);
-  if (messages.messages) {
-    messages = messages.messages; // ChatGPT is not 100% reliable, sometimes it directly returns an array and sometimes a JSON object with a messages property
-  }
-  for (let i = 0; i < messages.length; i++) {
-    const message = messages[i];
-    // generate audio file
-    const fileName = `audios/message_${i}.mp3`; // The name of your audio file
-    const textInput = message.text; // The text you wish to convert to speech
-    await voice.textToSpeech(elevenLabsApiKey, voiceID, fileName, textInput);
-    // generate lipsync
-    await lipSyncMessage(i);
-    message.audio = await audioFileToBase64(fileName);
-    message.lipsync = await readJsonTranscript(`audios/message_${i}.json`);
-  }
+  if (userMessage === "hi" || userMessage === "intro") {
+    const name = "Wilson";
+    const text = `Hi ${name}, welcome to aspirez, happy to help you towards the career development journey`;
+    const fileName = "output_0";
 
-  res.send({ messages });
+    try {
+      // Generate audio file from the introduction text
+      await generateAudioFile(text, fileName, "Samantha");
+
+      const inputFileAIFF = `audios/${fileName}.aiff`;
+      const outputFileWAV = `audios/${fileName}.wav`;
+      const outputFileJSON = `audios/${fileName}.json`;
+
+      // Convert audio to WAV
+      await convertAIFFtoWAV(inputFileAIFF, outputFileWAV);
+
+      // Generate lip sync JSON after both audio and WAV conversion are completed
+      await convertWAVtoLipSyncJSON(outputFileWAV, outputFileJSON);
+
+      // Send response with audio and lip sync data
+      res.send({
+        messages: [
+          {
+            audio: await audioFileToBase64(outputFileWAV),
+            lipsync: await readJsonTranscript(outputFileJSON),
+            facialExpression: "smile",
+            animation: "Talking_1",
+          }
+        ]
+      });
+    } catch (error) {
+      console.error("Error:", error);
+      res.status(500).send("Internal Server Error");
+    } finally {
+      // Delete temporary files
+      await deleteFiles([
+        `${fileName}.wav`,
+        `${fileName}.json`,
+        `${fileName}.aiff`
+      ]);
+      console.log("Temporary files deleted successfully.");
+    }
+  } else {
+    res.status(400).send("Invalid request");
+  }
 });
+
+const generateAudioFile = async (text, fileName, voice = "Samantha") => {
+  return new Promise((resolve, reject) => {
+    exec(`say -v ${voice} -o audios/${fileName}.aiff ${text}`, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+};
+
+const convertAIFFtoWAV = async (inputFile, outputFile) => {
+  return new Promise((resolve, reject) => {
+    exec(`ffmpeg -i ${inputFile} ${outputFile}`, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+};
+
+const convertWAVtoLipSyncJSON = async (inputFile, outputFile) => {
+  return new Promise((resolve, reject) => {
+    exec(`./bin/rhubarb -f json -o ${outputFile} ${inputFile} -r phonetic`, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  });
+};
+
+const deleteFiles = async (files) => {
+  await Promise.all(files.map(async (file) => {
+    try {
+      await fs.unlink(`audios/${file}`);
+      console.log(`File audios/${file} deleted successfully.`);
+    } catch (error) {
+      console.error(`Error deleting file audios/${file}:`, error);
+    }
+  }));
+};
 
 const readJsonTranscript = async (file) => {
   const data = await fs.readFile(file, "utf8");
