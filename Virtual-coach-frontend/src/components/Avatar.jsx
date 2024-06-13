@@ -7,9 +7,12 @@ import { useAnimations, useGLTF } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { button, useControls } from "leva";
 import React, { useEffect, useRef, useState } from "react";
-
 import * as THREE from "three";
 import { useChat } from "../hooks/useChat";
+
+
+
+
 
 const facialExpressions = {
   default: {},
@@ -289,6 +292,12 @@ export function Avatar(props) {
       })
     )
   );
+
+  useEffect(() => {
+    if (materials.Wolf3D_Hair) {
+      materials.Wolf3D_Hair.color = new THREE.Color(0x000000); // Black color
+    }
+  }, [materials]);
 
   useEffect(() => {
     let blinkTimeout;
